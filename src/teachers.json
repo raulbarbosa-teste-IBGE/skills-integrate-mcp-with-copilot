@@ -1,0 +1,7 @@
+{
+  "professor": {
+    "salt": "mergington-demo",
+    "iterations": 100000,
+    "password_hash": "92ade6422d36f32ee9e6c9255af075322c838d369f881fa722fd56fb1eac8a02"
+  }
+}

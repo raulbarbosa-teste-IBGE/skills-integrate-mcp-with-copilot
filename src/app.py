@@ -5,11 +5,17 @@ Uma aplicação FastAPI bem simples que permite aos estudantes visualizar e se
 inscrever em atividades extracurriculares da Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+import hashlib
+import json
+import secrets
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 import os
-from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
               description="API para visualizar e se inscrever em atividades extracurriculares")
@@ -18,6 +24,43 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+with (current_dir / "teachers.json").open(encoding="utf-8") as teachers_file:
+    teachers = json.load(teachers_file)
+
+active_tokens = {}
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+def _password_hash(password: str, salt: str, iterations: int) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), salt.encode(), iterations
+    ).hex()
+
+
+def require_teacher(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> str:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticação de professor necessária",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    teacher = active_tokens.get(credentials.credentials)
+    if teacher is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Token de autenticação inválido ou expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return teacher
 
 # Banco de dados de atividades em memória
 activities = {
@@ -83,13 +126,51 @@ def root():
     return RedirectResponse(url="/static/index.html")
 
 
+@app.post("/auth/login")
+def login(credentials: LoginRequest):
+    teacher = teachers.get(credentials.username)
+    if teacher is None:
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+
+    candidate_hash = _password_hash(
+        credentials.password, teacher["salt"], teacher["iterations"]
+    )
+    if not secrets.compare_digest(candidate_hash, teacher["password_hash"]):
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+
+    token = secrets.token_urlsafe(32)
+    active_tokens[token] = credentials.username
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "teacher": credentials.username,
+    }
+
+
+@app.post("/auth/logout")
+def logout(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticação de professor necessária",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    active_tokens.pop(credentials.credentials, None)
+    return {"message": "Sessão encerrada"}
+
+
 @app.get("/activities")
 def get_activities():
     return activities
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(
+    activity_name: str, email: str, _teacher: str = Depends(require_teacher)
+):
     """Inscreve um estudante em uma atividade"""
     # Valida se a atividade existe
     if activity_name not in activities:
@@ -111,7 +192,9 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(
+    activity_name: str, email: str, _teacher: str = Depends(require_teacher)
+):
     """Cancela a inscrição de um estudante em uma atividade"""
     # Valida se a atividade existe
     if activity_name not in activities:
