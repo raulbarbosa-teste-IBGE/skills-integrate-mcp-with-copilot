@@ -5,7 +5,15 @@ Uma aplicação FastAPI bem simples que permite aos estudantes visualizar e se i
 ## Funcionalidades
 
 - Visualizar todas as atividades extracurriculares disponíveis
-- Inscrever-se em atividades
+- Consultar participantes sem login
+- Inscrever e remover estudantes como professor autenticado
+
+### Acesso local de demonstração
+
+- Usuário: `professor`
+- Senha: `professor123`
+
+As credenciais ficam em `teachers.json`, armazenadas como hash PBKDF2. Os tokens de sessão ficam somente na memória e são invalidados quando o servidor reinicia.
 
 ## Começando
 
@@ -30,7 +38,10 @@ Uma aplicação FastAPI bem simples que permite aos estudantes visualizar e se i
 | Método | Endpoint                                                          | Descrição                                                                 |
 | ------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | GET    | `/activities`                                                     | Retorna todas as atividades com seus detalhes e o total atual de participantes |
-| POST   | `/activities/{activity_name}/signup?email=student@mergington.edu` | Inscreve em uma atividade                                                 |
+| POST   | `/auth/login`                                                      | Autentica um professor e retorna um token Bearer                         |
+| POST   | `/auth/logout`                                                     | Encerra a sessão do professor                                             |
+| POST   | `/activities/{activity_name}/signup?email=student@mergington.edu` | Inscreve com token de professor                                           |
+| DELETE | `/activities/{activity_name}/unregister?email=student@mergington.edu` | Remove com token de professor                                             |
 
 ## Modelo de dados
 
